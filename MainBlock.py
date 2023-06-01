@@ -175,7 +175,7 @@ if Set_Device=='CPU':
     device = "cpu"
 elif Set_Device=='GPU':
 #GPU
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"    #device = "cuda"
+    device = "cuda:1" if torch.cuda.is_available() else "cpu"    #device = "cuda"
 print("Using {} device".format(device))
 
 # time parameters (run extention, number of points,...)
@@ -205,7 +205,7 @@ HiddenLayerNumNodes= [100]
 
 ShiftAF = 'ON'  #with this argument we shift the activation function in order to get null expectation value for nodes after activation function
 
-
+IGB_flag = 'OFF'
 
 MaxPoolArgs={'kernel_size': 1} #dict of argument for the maxpooling layer
 
@@ -223,9 +223,9 @@ batches_num =0 #this variable counts the number of non-trashed batches (for exam
 SphericalConstrainMode = 'OFF'  #(WARNING: feature not implemented yet, ignore it for now)
 ClassSelectionMode = 'ON' #can be set either 'OFF' or 'ON'. setting this flag 'ON' to modify the default composition of a dataset (excluding some classes) 
 ClassImbalance = 'ON' #can be set either 'OFF' or 'ON'. setting this flag 'ON' to set imbalance ratio between classes of the dataset 
-MacroMode =  'Cats_&_Dogs' #Set the desired configuration for the composition of the modified dataset. The selected classes (and their relative abboundance (in case of imbalance)) can be set by LM and IR dict (see below)
+MacroMode = 'even_&_odd' #'CIFAR10_MULTI' #Set the desired configuration for the composition of the modified dataset. The selected classes (and their relative abboundance (in case of imbalance)) can be set by LM and IR dict (see below)
 ValidMode = 'Test' #('Valid' or 'Test') #can be valid or test and selsct different part of a separate dataset used only for testing/validating 
-IR = {'ON': 1./60, 'OFF': 1./7, 'MULTI': 0.6, 'DH': 1./7, 'MultiTest': 1./3, '0_4': 0.6, 'IG':1., 'GB':1., 'GB_MC':1., 'GB_Binary': 1., 'Cats_&_Dogs': 1.} #we define the dictionary IR to automatically associate the right imbalance ratio to the selected MacroMode
+IR = {'ON': 1./60, 'OFF': 1./7, 'MULTI': 0.6, 'DH': 1./7, 'MultiTest': 1./3, '0_4': 0.6, 'IG':1., 'GB':1., 'GB_MC':1., 'GB_Binary': 1., 'Cats_&_Dogs': 1., 'CIFAR10_MULTI':1., 'even_&_odd':1.} #we define the dictionary IR to automatically associate the right imbalance ratio to the selected MacroMode
 
 
 Dynamic = 'PCNGD' #algorithm selection 
@@ -251,7 +251,7 @@ label_to_sign_dict = {0: -1 , 1: 1} #reverse mapping
 
 UnbalanceFactor = IR[MacroMode]
 if(ClassSelectionMode=='ON'):
-    LM = {'ON': {0:1, 1: 1, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:1, 9: 1}, 'OFF': {1: 0, 9: 1}, 'MULTI': {0:0, 1: 1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8, 9: 9}, 'DH': {7:0, 4:1}, 'MultiTest' : {0:2, 1:1, 2:0}, '0_4': {0:0, 1: 1, 2:2, 3:3, 4:4}, 'IG': {1: 0, 9: 1}, 'GB': {0:0}, 'GB_MC':{0:0, 1: 1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8, 9: 9}, 'GB_Binary': {0:0, 1:1}, 'Cats_&_Dogs':{3:0, 5:1}}
+    LM = {'ON': {0:1, 1: 1, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:1, 9: 1}, 'OFF': {1: 0, 9: 1}, 'MULTI': {0:0, 1: 1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8, 9: 9}, 'DH': {7:0, 4:1}, 'MultiTest' : {0:2, 1:1, 2:0}, '0_4': {0:0, 1: 1, 2:2, 3:3, 4:4}, 'IG': {1: 0, 9: 1}, 'GB': {0:0}, 'GB_MC':{0:0, 1: 1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8, 9: 9}, 'GB_Binary': {0:0, 1:1}, 'Cats_&_Dogs':{3:0, 5:1}, 'CIFAR10_MULTI':{0:0, 1: 1, 2:2, 3:3, 4:4, 5:5, 6:6, 7:7, 8:8, 9: 9},'even_&_odd':{0:0, 1: 1, 2:0, 3:1, 4:0, 5:1, 6:0, 7:1, 8:0, 9:1} }
     
     label_map = LM[MacroMode]#{1: 0, 9: 1} #{0:1, 1: 1, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:1, 9: 1} #{start_class:mapped_class}
     ClassesList = list(label_map.values()) #sarà utile per l'embedding in tensorboard
@@ -388,7 +388,7 @@ params = {'Dynamic': Dynamic,  'FolderPath': FolderPath,  'info_file_object' : i
           'IterationCounter': 0, 'TimesComponentCounter':0,  'TwComponentCounter':0 , 'ProjId': None, 
           'sign_to_label_dict' : sign_to_label_dict, 'label_to_sign_dict' : label_to_sign_dict,
           'MaxPoolArgs':MaxPoolArgs, 'NetConf':NetConf, 'ShiftAF': ShiftAF,
-          'SignCountFlag': SignCountFlag}
+          'SignCountFlag': SignCountFlag, 'IGB_flag': IGB_flag}
 
 #if you include the HP looping inside the code at each "hyper-params iteration" makes a new object and assign it to the variable NetInstance
 #The old instance is not referenced anymore, and you cannot access it anymore. So in each loop you have a new fresh instance.

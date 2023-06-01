@@ -21,6 +21,9 @@ from torch.utils.data import DataLoader
 
 import wandb
 
+from collections import Counter
+
+
 
 # for data visualization
 import matplotlib.pyplot as plt
@@ -98,7 +101,13 @@ class DatasetMeanStd:
             self.test_data = datasets.MNIST(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
             
     #TODO: include also the option to calculate mean and std for test sets and MNIST dataset
-    
+        i=0
+        for item in self.train_data:
+            if i==0:
+                print('image', item[0].size())
+                print('label', item[1])
+                i+=1
+                
     def Mean(self):
         """
         Compute the mean of the dataset (only Cifar10 for now) for the standardization (image vectors normalization)
@@ -121,6 +130,15 @@ class DatasetMeanStd:
             mean_b = imgs[:,2,:,:].mean()   
 
             return (mean_r, mean_g, mean_b)
+
+        elif (self.DatasetName == 'MNIST'):
+            imgs = [item[0] for item in self.train_data if item[1] in self.ClassesList]  # item[0] and item[1] are image and its label
+            imgs = torch.stack(imgs, dim=0).numpy()
+            # calculate mean over each channel (r,g,b)
+            mean = imgs[:,0,:,:].mean()
+
+            return mean        
+
     def Std(self):
         
         """
@@ -143,7 +161,16 @@ class DatasetMeanStd:
             std_b = imgs[:,2,:,:].std()  
             
             return(std_r, std_g, std_b)
+
+        elif (self.DatasetName == 'MNIST'):
+            imgs = [item[0] for item in self.train_data] # item[0] and item[1] are image and its label
+            imgs = torch.stack(imgs, dim=0).numpy()
             
+            # calculate std over each channel (r,g,b)
+            std = imgs[:,0,:,:].std()
+ 
+            
+            return std            
             
 
 
@@ -1215,6 +1242,9 @@ class Deep_HL(nn.Module, NetVariables):
 
 
 
+channels_seq = [16, 32, 32, 64, 32]
+
+
 class Deep_CNN(nn.Module, NetVariables):
     def __init__(self, params):
         """
@@ -1241,19 +1271,25 @@ class Deep_CNN(nn.Module, NetVariables):
         NetVariables.__init__(self, self.params)
         OrthoInit.__init__(self)
         
-        if  (self.params['Dataset']=='MNIST'):
+
+        self.layer0 = self.Const_size_Conv_layers(channels_seq)
+
+        if self.params['IGB_flag']=='ON':
             self.layer1 = nn.Sequential(
-                nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=2),
+                nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5, stride=1, padding=2),
                 nn.ReLU(),
-                nn.MaxPool2d(kernel_size=2, stride=2))
+                                                
+                nn.MaxPool2d(kernel_size=2, stride=2)
+                )
             self.layer2 = nn.Sequential(
-                nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
+                nn.Conv2d(16, 16, kernel_size=5, stride=1, padding=2),
                 nn.ReLU(),
-                nn.MaxPool2d(kernel_size=2, stride=2))
-            self.fc = nn.Linear(7*7*32, self.num_classes)
-        elif  (self.params['Dataset']=='CIFAR10'):  
+
+                nn.MaxPool2d(kernel_size=4, stride=2)
+                )
+        elif self.params['IGB_flag']=='OFF':
             self.layer1 = nn.Sequential(
-                nn.Conv2d(in_channels=3, out_channels=16, kernel_size=5, stride=1, padding=2),
+                nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5, stride=1, padding=2),
                 #nn.ReLU(),
                 nn.Tanh(),
                 #nn.BatchNorm2d(16), #PUT BATCH NORM TO CONFIRM THAT THIS IS THE PROBLEM FOR VGG16
@@ -1264,7 +1300,7 @@ class Deep_CNN(nn.Module, NetVariables):
                 nn.AvgPool2d(kernel_size=2, stride=2)
                 )
             self.layer2 = nn.Sequential(
-                nn.Conv2d(16, 64, kernel_size=5, stride=1, padding=2),
+                nn.Conv2d(16, 16, kernel_size=5, stride=1, padding=2),
                 #nn.ReLU(),
                 nn.Tanh(),
                 
@@ -1274,16 +1310,57 @@ class Deep_CNN(nn.Module, NetVariables):
                 
                 #nn.MaxPool2d(kernel_size=4, stride=4)
                 #use avgpool and tanh to prevent the guess imbalance
-                nn.AvgPool2d(kernel_size=4, stride=4)
+                nn.AvgPool2d(kernel_size=4, stride=2)
                 )
             #note the difference in values from the MNIST case in the following line; it is due to the different image size
             #in fact, a generic image (regardless of the number of channels) with size X*Y changes its extension in the 2 directions in the following way:
             #In the convolutional layer: X -> 1+(X-kernel_size + 2*padding)/stride
             # In the pooling layer: X -> 1+(X-kernel_size)/stride
-            self.fc = nn.Linear(4*4*64, self.num_classes)                
+        if  (self.params['Dataset']=='MNIST'):
+            self.fc = nn.Linear(6*6*16, self.num_classes)
+        elif  (self.params['Dataset']=='CIFAR10'):
+            self.fc = nn.Linear(7*7*16, self.num_classes)                
             
         self.initialize_weights() #calling the function below to initialize weights
-        #self.weights_init() #call the orthogonal initial condition    
+        #self.weights_init() #call the orthogonal initial condition 
+        
+        
+    def Const_size_Conv_layers(self, channels_seq):
+        layers = []
+        if  (self.params['Dataset']=='MNIST'):
+            in_channels = 1
+        elif  (self.params['Dataset']=='CIFAR10'): 
+            in_channels = 3
+        
+        
+        for x in channels_seq:
+            if self.params['IGB_flag']=='OFF':
+                layers += [nn.Conv2d(in_channels, x, kernel_size=5, stride=1, padding=4),
+                           #nn.ReLU(inplace=True)
+                           #nn.LeakyReLU(negative_slope=0.1, inplace=False),
+                           nn.Tanh()  #put it back after banch runs
+                           #,nn.BatchNorm2d(x)   #For now Batch Norm is excluded because it is incompatible with PCNGD, GD, PCNSGD where I forward sample by sample
+                           ,nn.AvgPool2d(kernel_size=5, stride=1)
+                           ]
+                in_channels = x            
+
+            elif self.params['IGB_flag']=='ON':
+                layers += [nn.Conv2d(in_channels, x, kernel_size=5, stride=1, padding=4),
+                           #nn.ReLU(inplace=True)
+                           #nn.LeakyReLU(negative_slope=0.1, inplace=False),
+                           nn.ReLU()  #put it back after banch runs
+                           #,nn.BatchNorm2d(x)   #For now Batch Norm is excluded because it is incompatible with PCNGD, GD, PCNSGD where I forward sample by sample
+                           ,nn.MaxPool2d(kernel_size=5, stride=1)
+                           ]
+                in_channels = x      
+        #see * operator (Unpacking Argument Lists)
+        #The special syntax *args in function definitions in python is used to pass a variable number of arguments to a function. It is used to pass a non-key worded, variable-length argument list.
+        #The syntax is to use the symbol * to take in a variable number of arguments; by convention, it is often used with the word args.
+        #What *args allows you to do is take in more arguments than the number of formal arguments that you previously defined.
+        return nn.Sequential(*layers) 
+
+        
+        
     def initialize_weights(self):
         #modules is the structure in which pytorch saves all the layers that make up the network
         for m in self.modules():
@@ -1301,8 +1378,8 @@ class Deep_CNN(nn.Module, NetVariables):
         
     def forward(self, x):
         outs = {}
-        
-        L1 = self.layer1(x)
+        L0 = self.layer0(x)
+        L1 = self.layer1(L0)
         outs['l1'] = L1
         L2 = self.layer2(L1)
         #After pooling or CNN convolution requires connection full connection layer, it is necessary to flatten the multi-dimensional tensor into a one-dimensional,
@@ -1949,8 +2026,9 @@ class Bricks:
         #TODO: correct standardization for the mnist dataset below
         if (self.params['Dataset']=='MNIST'):
             self.transform = transforms.Compose([
-                        transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
-                        transforms.Normalize((0.), (1.))])     
+                        transforms.ToTensor() #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
+                        ,transforms.Normalize(mean=(DataMean,), std=(DataStd,))
+                        ])   
         elif(self.params['Dataset']=='CIFAR10'):    
             self.transform = transforms.Compose([
                     transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
@@ -1972,11 +2050,31 @@ class Bricks:
             self.train_data = datasets.MNIST(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
             self.test_data = datasets.MNIST(root = self.params['DataFolder'], train = False, download = True, transform = self.transform)
             self.valid_data = datasets.MNIST(root = self.params['DataFolder'], train = False, download = True, transform = self.transform)
+            num_data = len(self.train_data)
+            i=0
+            for item in self.train_data:
+                if i==0:
+                    print(item)
+                    print('image', item[0].size())
+                    print('label', item[1])
+                    print('image', item[0])
+                    i+=1
+            print("total number of samples ", num_data, self.train_data.data.size())
         elif(self.params['Dataset']=='CIFAR10'):
             print('this run used CIFAR10 dataset', file = self.params['info_file_object'])
             self.train_data = datasets.CIFAR10(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
             self.test_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
             self.valid_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
+            num_data = len(self.train_data)
+            i=0
+            for item in self.train_data:
+                if i==0:
+                    print(item)
+                    print('image', item[0].size())
+                    print('label', item[1])
+                    print('image', item[0])
+                    i+=1
+            #print("total number of samples ", self.train_data.data)
         elif(self.params['Dataset']=='GaussBlob'):
             #TODO: WARNING you are using same dataset for train test valid (because for now you only need the train) for the GaussBlob dataset. You will need to modify this later
             self.train_data = GaussBlobsDataset(self.params['DataFolder'])
@@ -1984,7 +2082,7 @@ class Bricks:
             self.valid_data = GaussBlobsDataset(self.params['DataFolder'])
             num_data = len(self.train_data)
             
-            print("total number of samples ", num_data)
+            print("total number of samples ", num_data, self.train_data.data.size())
         else:
             print('the third argument ypo passed to the python code is not valid', file = self.params['WarningFile'])
         
@@ -2012,23 +2110,30 @@ class Bricks:
         #define a variable to fix the unbalance rate between the 2 classes
         if((self.params['ClassSelectionMode']=='ON') and (self.params['ClassImbalance'] == 'ON')):
             
-            self.TrainDL = {}#dict to store data loader (one for each mapped class) for train set
-            self.TestDL = {}#dict to store data loader (one for each mapped class) for test set
-            self.ValidDL = {}#dict to store data loader (one for each mapped class) for valid set
-            #define the batch sizr for each class such that their proportion will be near to "self.params['ImabalnceProportions']"
-            #the advantage of proceding like that is that we can easly get the exact same number of batches per each class
-            if self.params['OversamplingMode'] == 'OFF':
-                #the batch size for each input class
-                self.TrainClassBS = np.rint((self.params['batch_size']/np.sum(self.params['ImabalnceProportions']))*np.divide(self.params['ImabalnceProportions'], self.params['MappedClassOcc'])).astype(int)
-                #the batch size for the whole associated output class given simply by the above expession multiplyed for the occurrences of each output class in the mapping
-                self.TrainTotalClassBS = (np.rint((self.params['batch_size']/np.sum(self.params['ImabalnceProportions']))*np.divide(self.params['ImabalnceProportions'], self.params['MappedClassOcc'])).astype(int)*(self.params['MappedClassOcc'])).astype(int)
-            elif self.params['OversamplingMode'] == 'ON':
-                self.TrainClassBS = np.rint((self.params['batch_size']/self.model.num_classes)*np.reciprocal(self.params['MappedClassOcc'])).astype(int)
-                self.TrainTotalClassBS = ((np.rint((self.params['batch_size']/self.model.num_classes)*np.reciprocal(self.params['MappedClassOcc'])).astype(int))*(self.params['MappedClassOcc'])).astype(int)
-            print("real size of the batch size of the training set (after the roundings): {}".format(np.sum(self.TrainTotalClassBS)),flush=True, file = self.params['info_file_object']) 
-            print("the total sizes of mapped classes are {}".format(self.TrainTotalClassBS))
-            
-            MajorInputClassBS = np.amax(self.TrainClassBS) #we select here the class with greater element in the batch; that one will establish the bottle neck for the dataset, we assign to it the maximum possible number of element            
+            #WARNING: THE MNIST CASE SHOW AN ERROR USING MULTIPLE DATALOADER, THEREFORE FOR NOW WE WILL DEFINE A SINGLE ONE
+            if (self.params['Dataset']=='MNIST'):
+                self.TrainDL = {}#dict to store data loader (one for each mapped class) for train set
+                self.TestDL = {}#dict to store data loader (one for each mapped class) for test set
+                self.ValidDL = {}#dict to store data loader (one for each mapped class) for valid set                
+                
+            else:
+                self.TrainDL = {}#dict to store data loader (one for each mapped class) for train set
+                self.TestDL = {}#dict to store data loader (one for each mapped class) for test set
+                self.ValidDL = {}#dict to store data loader (one for each mapped class) for valid set
+                #define the batch sizr for each class such that their proportion will be near to "self.params['ImabalnceProportions']"
+                #the advantage of proceding like that is that we can easly get the exact same number of batches per each class
+                if self.params['OversamplingMode'] == 'OFF':
+                    #the batch size for each input class
+                    self.TrainClassBS = np.rint((self.params['batch_size']/np.sum(self.params['ImabalnceProportions']))*np.divide(self.params['ImabalnceProportions'], self.params['MappedClassOcc'])).astype(int)
+                    #the batch size for the whole associated output class given simply by the above expession multiplyed for the occurrences of each output class in the mapping
+                    self.TrainTotalClassBS = (np.rint((self.params['batch_size']/np.sum(self.params['ImabalnceProportions']))*np.divide(self.params['ImabalnceProportions'], self.params['MappedClassOcc'])).astype(int)*(self.params['MappedClassOcc'])).astype(int)
+                elif self.params['OversamplingMode'] == 'ON':
+                    self.TrainClassBS = np.rint((self.params['batch_size']/self.model.num_classes)*np.reciprocal(self.params['MappedClassOcc'])).astype(int)
+                    self.TrainTotalClassBS = ((np.rint((self.params['batch_size']/self.model.num_classes)*np.reciprocal(self.params['MappedClassOcc'])).astype(int))*(self.params['MappedClassOcc'])).astype(int)
+                print("real size of the batch size of the training set (after the roundings): {}".format(np.sum(self.TrainTotalClassBS)),flush=True, file = self.params['info_file_object']) 
+                print("the total sizes of mapped classes are {}".format(self.TrainTotalClassBS))
+                
+                MajorInputClassBS = np.amax(self.TrainClassBS) #we select here the class with greater element in the batch; that one will establish the bottle neck for the dataset, we assign to it the maximum possible number of element            
 
             self.traintargets = torch.tensor(self.train_data.targets) #convert label in tensors
             self.validtargets = torch.tensor(self.valid_data.targets) #convert label in tensors
@@ -2040,76 +2145,130 @@ class Bricks:
             self.train_data.targets = torch.tensor(self.train_data.targets)
             self.valid_data.targets = torch.tensor(self.valid_data.targets)
             self.test_data.targets = torch.tensor(self.test_data.targets)
+            
+            if (self.params['Dataset']=='MNIST'):
+                for key in self.params['label_map']:
+                    self.trainTarget_idx = (self.traintargets==key).nonzero() 
+                    self.validTarget_idx = (self.validtargets==key).nonzero()
+                    if (self.params['ValidMode']=='Test'): #if we are in testing mode we have to repeat it for a third dataset
+                        self.testTarget_idx = (self.testtargets==key).nonzero()
+              
                     
-            self.TrainIdx = {}
-            self.ValidIdx = {}
-            self.TestIdx = {}
-            for key in self.params['label_map']:
-                print("the batch size for the class {}, mapped in {} is {}".format(key, self.params['label_map'][key], self.TrainClassBS[self.params['label_map'][key]]),flush=True, file = self.params['info_file_object'])
-                #we start collecting the index associated to the output classes togheter
-                #TRAIN
-                self.trainTarget_idx = (self.traintargets==key).nonzero() 
-                #l0=int(900/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #just for debug purpose
-                l0 = int(len(self.trainTarget_idx)/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #we first compute the numbers of batches for the majority class and then reproduce for all the others in such a way they will have same number of batches but with a proportion set by self.TrainClassBS[classcounter-1]
-                self.Trainl0 = l0
-                print("the number of elements selected by the class {} loaded on the trainset is {}".format(key, self.Trainl0),flush=True, file = self.params['info_file_object'])
-                #print(self.trainTarget_idx)
-                ClassTempVar = '%s'%self.params['label_map'][key]
-                
-                #VALID
-                self.validTarget_idx = (self.validtargets==key).nonzero()
-                self.Validl0= 150 #should be less than 500 (since the total test set has 1000 images per class)                
-                #TEST
-                if (self.params['ValidMode']=='Test'): #if we are in testing mode we have to repeat it for a third dataset
-                    self.testTarget_idx = (self.testtargets==key).nonzero()
-                    self.Testl0= 150 #should be less than 500 (since the total test set has 1000 images per class)
-                
-                if ClassTempVar in self.TrainIdx: #if the mapped class has already appeared, we concatenate the new indeces to the existing ones
-                    self.TrainIdx['%s'%self.params['label_map'][key]] = torch.cat((self.TrainIdx['%s'%self.params['label_map'][key]], self.trainTarget_idx[:][0:self.Trainl0]),0)
-                    self.ValidIdx['%s'%self.params['label_map'][key]] = torch.cat((self.ValidIdx['%s'%self.params['label_map'][key]], self.validTarget_idx[:][0:self.Validl0]),0)
+            elif (self.params['Dataset']!='MNIST'):
+            
+                self.TrainIdx = {}
+                self.ValidIdx = {}
+                self.TestIdx = {}
+                for key in self.params['label_map']:
+                    print("the batch size for the class {}, mapped in {} is {}".format(key, self.params['label_map'][key], self.TrainClassBS[self.params['label_map'][key]]),flush=True, file = self.params['info_file_object'])
+                    #we start collecting the index associated to the output classes togheter
+                    #TRAIN
+                    self.trainTarget_idx = (self.traintargets==key).nonzero() 
+                    #l0=int(900/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #just for debug purpose
+                    l0 = int(len(self.trainTarget_idx)/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #we first compute the numbers of batches for the majority class and then reproduce for all the others in such a way they will have same number of batches but with a proportion set by self.TrainClassBS[classcounter-1]            
+                    #self.Trainl0 = l0
+                    #WARNING: LINE ABOVE CHANGED WITH THE ONE BELOW ONLY FOR DEBUG PURPOSE (MNIST ADAPTATION) RESUBSTITUTE WITH THE ONE ABOVE ONCE SOLVED THE ISSUE
+                    self.Trainl0 = 5400
+                    print("the number of elements selected by the class {} loaded on the trainset is {}".format(key, self.Trainl0),flush=True, file = self.params['info_file_object'])
+                    #print(self.trainTarget_idx)
+                    ClassTempVar = '%s'%self.params['label_map'][key]
+                    
+                    #VALID
+                    self.validTarget_idx = (self.validtargets==key).nonzero()
+                    self.Validl0= 150 #should be less than 500 (since the total test set has 1000 images per class)                
+                    #TEST
                     if (self.params['ValidMode']=='Test'): #if we are in testing mode we have to repeat it for a third dataset
-                        self.TestIdx['%s'%self.params['label_map'][key]] = torch.cat((self.TestIdx['%s'%self.params['label_map'][key]], self.testTarget_idx[:][-self.Testl0:]),0)                   
-                else: #if, instead the class is selected for the first time, we simply charge it on the indeces dict
-                    self.TrainIdx['%s'%self.params['label_map'][key]] = self.trainTarget_idx[:][0:self.Trainl0]
-                    self.ValidIdx['%s'%self.params['label_map'][key]] = self.validTarget_idx[:][0:self.Validl0] #select the last indeces for the validation so we don't have overlap increasing the size
-                    if (self.params['ValidMode']=='Test'): #if we are in testing mode we have to repeat it for a third dataset
-                        self.TestIdx['%s'%self.params['label_map'][key]] = self.testTarget_idx[:][-self.Testl0:] #select the last indeces for the validation so we don't have overlap increasing the size
+                        self.testTarget_idx = (self.testtargets==key).nonzero()
+                        self.Testl0= 150 #should be less than 500 (since the total test set has 1000 images per class)
+                    
+                    if ClassTempVar in self.TrainIdx: #if the mapped class has already appeared, we concatenate the new indeces to the existing ones
+                        self.TrainIdx['%s'%self.params['label_map'][key]] = torch.cat((self.TrainIdx['%s'%self.params['label_map'][key]], self.trainTarget_idx[:][0:self.Trainl0]),0)
+                        self.ValidIdx['%s'%self.params['label_map'][key]] = torch.cat((self.ValidIdx['%s'%self.params['label_map'][key]], self.validTarget_idx[:][0:self.Validl0]),0)
+                        if (self.params['ValidMode']=='Test'): #if we are in testing mode we have to repeat it for a third dataset
+                            self.TestIdx['%s'%self.params['label_map'][key]] = torch.cat((self.TestIdx['%s'%self.params['label_map'][key]], self.testTarget_idx[:][-self.Testl0:]),0)                   
+                    else: #if, instead the class is selected for the first time, we simply charge it on the indeces dict
+                        self.TrainIdx['%s'%self.params['label_map'][key]] = self.trainTarget_idx[:][0:self.Trainl0]
+                        self.ValidIdx['%s'%self.params['label_map'][key]] = self.validTarget_idx[:][0:self.Validl0] #select the last indeces for the validation so we don't have overlap increasing the size
+                        if (self.params['ValidMode']=='Test'): #if we are in testing mode we have to repeat it for a third dataset
+                            self.TestIdx['%s'%self.params['label_map'][key]] = self.testTarget_idx[:][-self.Testl0:] #select the last indeces for the validation so we don't have overlap increasing the size
+                
             #REMAP THE LABELS: now that the indexes are fixed we map the dataset to the new labels
             for key in self.params['label_map']:               
                 self.train_data.targets[self.traintargets==key]= self.params['label_map'][key] 
                 self.valid_data.targets[self.validtargets==key]=self.params['label_map'][key]
                 if (self.params['ValidMode']=='Test'):
                     self.test_data.targets[self.testtargets==key]=self.params['label_map'][key]
+            #print(self.train_data.targets)    
                     
+            #DATALOADER CREATION    
+            if (self.params['Dataset']=='MNIST'):
+                    self.TrainDL['Class0'] = torch.utils.data.DataLoader(self.train_data, batch_size = self.params['batch_size'], 
+                                                           shuffle=True , num_workers = self.params['num_workers'])                
+                    self.ValidDL['Class0'] = torch.utils.data.DataLoader(self.valid_data, batch_size = self.params['batch_size'], #note that for test and valid the choice of the batch size is not relevant (we use these dataset only in eval mode)
+                                                           shuffle=True , num_workers = self.params['num_workers']) 
+
+                    if (self.params['ValidMode']=='Test'):                    
+                        self.TestDL['Class0'] = torch.utils.data.DataLoader(self.test_data, batch_size = self.params['batch_size'], 
+                                                           shuffle=True , num_workers = self.params['num_workers'])     
+                                         
+            else:
+                #now we iterate over the mapped classes avoiding repetition
+                print("checking that the data loader corresponding to each class contains the same number of batches",flush=True, file = self.params['info_file_object'])
+                for MC in set(list(self.params['label_map'].values())): #with this syntax we avoid repetition of same dict items
+                    #TRAIN
+                    self.train_sampler = SubsetRandomSampler(self.TrainIdx['%s'%MC])  
+                    #if we are studing the class imbalance case we use the sampler option to select data
+                    #we load the dataloader corresponding to the mapped "self.params['label_map'][key]" class as a dict element
+                    self.TrainDL['Class%s'%MC] = torch.utils.data.DataLoader(self.train_data, batch_size = self.TrainTotalClassBS[MC].item(), 
+                                                           sampler = self.train_sampler, num_workers = self.params['num_workers'])     
+    
+                    #VALID
+                    self.valid_sampler = SubsetRandomSampler(self.ValidIdx['%s'%MC])
+                    self.ValidDL['Class%s'%MC] = torch.utils.data.DataLoader(self.valid_data, batch_size = self.params['batch_size'], #note that for test and valid the choice of the batch size is not relevant (we use these dataset only in eval mode)
+                                                           sampler = self.valid_sampler, num_workers = self.params['num_workers']) 
                     
+                    if (self.params['ValidMode']=='Test'):                    
+                        self.test_sampler = SubsetRandomSampler(self.TestIdx['%s'%MC])                    
+                        self.TestDL['Class%s'%MC] = torch.utils.data.DataLoader(self.test_data, batch_size = self.params['batch_size'], 
+                                                               sampler = self.test_sampler, num_workers = self.params['num_workers'])     
+            
+                    #check that the data loader corresponding to each class contain the same number of batches;
+    
+                    print("the classes mapped in {} contains in its training dataloader {} batches".format(MC , len(self.TrainDL['Class%s'%MC])),flush=True, file = self.params['info_file_object']) 
+                
+                      
+                
+            """
+            #WARNING: CAHNGED ABOVE BLOCK WITH THE FOLLOWING ONE
             #DATALOADER CREATION    
             #now we iterate over the mapped classes avoiding repetition
             print("checking that the data loader corresponding to each class contain the same number of batches",flush=True, file = self.params['info_file_object'])
             for MC in set(list(self.params['label_map'].values())): #with this syntax we avoid repetition of same dict items
                 #TRAIN
-                self.train_sampler = SubsetRandomSampler(self.TrainIdx['%s'%MC])  
+                self.SubsetData = torch.utils.data.Subset(self.train_data, self.TrainIdx['%s'%MC])  
                 #if we are studing the class imbalance case we use the sampler option to select data
                 #we load the dataloader corresponding to the mapped "self.params['label_map'][key]" class as a dict element
-                self.TrainDL['Class%s'%MC] = torch.utils.data.DataLoader(self.train_data, batch_size = self.TrainTotalClassBS[MC].item(), 
-                                                       sampler = self.train_sampler, num_workers = self.params['num_workers'])     
+                self.TrainDL['Class%s'%MC] = torch.utils.data.DataLoader(self.SubsetData, batch_size = self.TrainTotalClassBS[MC].item(), 
+                                                       shuffle=True, num_workers = self.params['num_workers'])     
 
                 #VALID
-                self.valid_sampler = SubsetRandomSampler(self.ValidIdx['%s'%MC])
-                self.ValidDL['Class%s'%MC] = torch.utils.data.DataLoader(self.valid_data, batch_size = self.params['batch_size'], #note that for test and valid the choice of the batch size is not relevant (we use these dataset only in eval mode)
-                                                       sampler = self.valid_sampler, num_workers = self.params['num_workers']) 
+                self.SubsetData = torch.utils.data.Subset(self.valid_data,self.ValidIdx['%s'%MC])
+                self.ValidDL['Class%s'%MC] = torch.utils.data.DataLoader(self.SubsetData, batch_size = self.params['batch_size'], #note that for test and valid the choice of the batch size is not relevant (we use these dataset only in eval mode)
+                                                       shuffle=True, num_workers = self.params['num_workers']) 
                 
                 if (self.params['ValidMode']=='Test'):                    
-                    self.test_sampler = SubsetRandomSampler(self.TestIdx['%s'%MC])                    
-                    self.TestDL['Class%s'%MC] = torch.utils.data.DataLoader(self.test_data, batch_size = self.params['batch_size'], 
-                                                           sampler = self.test_sampler, num_workers = self.params['num_workers'])     
+                    self.SubsetData = torch.utils.data.Subset(self.test_data,self.TestIdx['%s'%MC])                    
+                    self.TestDL['Class%s'%MC] = torch.utils.data.DataLoader(self.SubsetData, batch_size = self.params['batch_size'], 
+                                                           shuffle=True, num_workers = self.params['num_workers'])     
         
                 #check that the data loader corresponding to each class contain the same number of batches;
 
                 print("the classes mapped in {} contains in its training dataloader {} batches".format(MC , len(self.TrainDL['Class%s'%MC])),flush=True, file = self.params['info_file_object']) 
-                   
-                
-        
-        
+            """
+
+        next(iter(self.TrainDL['Class0']))        
+        print('success!')        
+
         if(self.params['ClassImbalance'] == 'OFF'):
             self.train_loader = torch.utils.data.DataLoader(self.train_data, batch_size = self.params['batch_size'],
                                                      num_workers = self.params['num_workers'])
@@ -2128,31 +2287,65 @@ class Bricks:
 #         for data, label in self.valid_loader:
 #             for im in range(0, len(label)):
 #                 self.TestSamplesClass[label[im]] +=1
-        
-        for key in self.TrainDL:
-            self.SamplesClass[ind] = len(self.TrainDL[key].sampler) #nota che con len(self.TrainDL[key]) ottieni invece il numero di batches
-            self.TrainTotal += self.SamplesClass[ind]
-            print("train  number of samples in  {} is {}".format(key, self.SamplesClass[ind]), flush = True, file = self.params['info_file_object'])
-            ind+=1
-        print("total train  number of samples is {}".format( self.TrainTotal), flush = True, file = self.params['info_file_object'])
-        ind=0
-        self.TestTotal = 0
-        for key in self.TestDL:
-            self.TestSamplesClass[ind] = len(self.TestDL[key].sampler)
+        if (self.params['Dataset']=='MNIST'):
+            train_classes = [x for x in self.train_data.targets ]
+            Train_number_classes = Counter(i.item() for i in train_classes)
+            #print('elements for each class: ', Train_number_classes, train_classes)
+            for key in Train_number_classes:
+                self.SamplesClass[key] = Train_number_classes[key]
+                self.TrainTotal += self.SamplesClass[key]
             
-            self.TestTotal += self.TestSamplesClass[ind]
-            print("test number of samples in  {} are {}".format(key, self.TestSamplesClass[ind]), flush = True, file = self.params['info_file_object'])
-            ind+=1            
-        ind=0
-        self.ValTotal = 0
-        for key in self.ValidDL:
-            self.ValidSamplesClass[ind] = len(self.ValidDL[key].sampler)
-            self.ValTotal += self.ValidSamplesClass[ind]
-            print("valid number of samples in  {} are {}".format(key, self.ValidSamplesClass[ind]), flush = True, file = self.params['info_file_object'])
-            ind+=1
+                print("train  number of samples in  {} is {}".format(key, self.SamplesClass[key]), flush = True, file = self.params['info_file_object'])
+            print("total train  number of samples is {}".format( self.TrainTotal), flush = True, file = self.params['info_file_object'])
+            self.ValTotal = 0
+            valid_classes = [x for x in self.valid_data.targets]
+            Valid_number_classes = Counter(i.item() for i in valid_classes) 
+            print(Valid_number_classes)
+            for key in Valid_number_classes:
+                self.ValidSamplesClass[key] = Valid_number_classes[key]
+                self.ValTotal += self.ValidSamplesClass[key]
             
+                print("train  number of samples in  {} is {}".format(key, self.ValidSamplesClass[key]), flush = True, file = self.params['info_file_object'])
+            print("total train  number of samples is {}".format( self.ValTotal), flush = True, file = self.params['info_file_object'])
+    
+            if (self.params['ValidMode']=='Test'):  
+                self.TestTotal = 0
+                test_classes = [x for x in self.test_data.targets]
+                Test_number_classes = Counter(i.item() for i in test_classes) 
+                print(Test_number_classes)
+                for key in Test_number_classes:
+                    self.TestSamplesClass[key] = Test_number_classes[key]
+                    self.TestTotal += self.TestSamplesClass[key]
                 
-
+                    print("train  number of samples in  {} is {}".format(key, self.TestSamplesClass[key]), flush = True, file = self.params['info_file_object'])
+                print("total train  number of samples is {}".format( self.TestTotal), flush = True, file = self.params['info_file_object'])
+    
+ 
+        else:
+        
+            for key in self.TrainDL:
+                self.SamplesClass[ind] = len(self.TrainDL[key].sampler) #nota che con len(self.TrainDL[key]) ottieni invece il numero di batches
+                self.TrainTotal += self.SamplesClass[ind]
+                print("train  number of samples in  {} is {}".format(key, self.SamplesClass[ind]), flush = True, file = self.params['info_file_object'])
+                ind+=1
+            print("total train  number of samples is {}".format( self.TrainTotal), flush = True, file = self.params['info_file_object'])
+            ind=0
+            self.TestTotal = 0
+            for key in self.TestDL:
+                self.TestSamplesClass[ind] = len(self.TestDL[key].sampler)
+                
+                self.TestTotal += self.TestSamplesClass[ind]
+                print("test number of samples in  {} are {}".format(key, self.TestSamplesClass[ind]), flush = True, file = self.params['info_file_object'])
+                ind+=1            
+            ind=0
+            self.ValTotal = 0
+            for key in self.ValidDL:
+                self.ValidSamplesClass[ind] = len(self.ValidDL[key].sampler)
+                self.ValTotal += self.ValidSamplesClass[ind]
+                print("valid number of samples in  {} are {}".format(key, self.ValidSamplesClass[ind]), flush = True, file = self.params['info_file_object'])
+                ind+=1
+                
+                    
 
 
     
@@ -2240,7 +2433,9 @@ class Bricks:
         self.StoringGradVariablesReset()
         
         for EvalKey in self.TrainDL:
+            #print(EvalKey)
             SetFlag = 'Train' 
+            #print('fine', self.TrainDL[EvalKey][0], flush=True)
             for dataval,labelval in self.TrainDL[EvalKey]:
         
                 Mask_Flag = 1
