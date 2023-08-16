@@ -6,7 +6,9 @@
 
 FolderName='SimulationResult'
 
-Dataset='CIFAR10'
+
+Dataset='CIFAR100'
+#Dataset='CIFAR10'
 #Dataset='MNIST'
 #Dataset='Imagenet-LT'
 #Dataset='Places365'
@@ -19,14 +21,15 @@ Dataset='CIFAR10'
 #DataFolder="$TMPDIR/data_nobackup/CIFAR10"
 #DataFolder="$TMPDIR/data_nobackup/CIFAR100"
 #DataFolder="/home/EAWAG/francaem/restored/data/Binary_GaussBlob/"
-DataFolder="/home/EAWAG/francaem/restored/data/CIFAR10/"
+#DataFolder="/home/EAWAG/francaem/restored/data/CIFAR10/"
+DataFolder="/home/EAWAG/francaem/restored/data/CIFAR100/"
 
 
 #Architecture='VGG_Custom_Dropout'
 #Architecture='VGG16'
-#Architecture='CNN'
+Architecture='CNN'
 #Architecture='MultiPerceptron'
-Architecture='Deep_CNN'
+#Architecture='Deep_CNN'
 
 
 mkdir $FolderName 
@@ -42,7 +45,7 @@ do
 	do
 		for DP in -1 #0.2 0.4 # 0.2 0.4 #0.4 #0.2 0.4
 		do
-			for BS in 1000
+			for BS in 500
 			do
 				for LR in 0.1      #1 0.1 0.01   
 				do

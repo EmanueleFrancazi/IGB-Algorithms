@@ -96,6 +96,10 @@ class DatasetMeanStd:
         if(self.DatasetName=='CIFAR10'):
             self.train_data = datasets.CIFAR10(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
             self.test_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = True, transform = self.transform)
+        elif(self.DatasetName=='CIFAR100'):
+            self.train_data = datasets.CIFAR100(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
+            self.test_data = datasets.CIFAR100(root = self.params['DataFolder'], train = False, download = True, transform = self.transform)
+            
         elif(self.DatasetName=='MNIST'):
             self.train_data = datasets.MNIST(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
             self.test_data = datasets.MNIST(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
@@ -120,7 +124,7 @@ class DatasetMeanStd:
         
         
         
-        if (self.DatasetName == 'CIFAR10'):
+        if (self.DatasetName == 'CIFAR10') or (self.DatasetName == 'CIFAR100'):
             imgs = [item[0] for item in self.train_data if item[1] in self.ClassesList]  # item[0] and item[1] are image and its label
             imgs = torch.stack(imgs, dim=0).numpy()
             
@@ -151,7 +155,7 @@ class DatasetMeanStd:
 
         """
         
-        if (self.DatasetName == 'CIFAR10'):
+        if (self.DatasetName == 'CIFAR10') or (self.DatasetName == 'CIFAR100'):
             imgs = [item[0] for item in self.train_data] # item[0] and item[1] are image and its label
             imgs = torch.stack(imgs, dim=0).numpy()
             
@@ -1275,43 +1279,59 @@ class Deep_CNN(nn.Module, NetVariables):
         self.layer0 = self.Const_size_Conv_layers(channels_seq)
 
         if self.params['IGB_flag']=='ON':
-            self.layer1 = nn.Sequential(
-                nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5, stride=1, padding=2),
-                nn.ReLU(),
-                                                
-                nn.MaxPool2d(kernel_size=2, stride=2)
-                )
-            self.layer2 = nn.Sequential(
-                nn.Conv2d(16, 16, kernel_size=5, stride=1, padding=2),
-                nn.ReLU(),
-
-                nn.MaxPool2d(kernel_size=4, stride=2)
-                )
+            
+            self.l1= [nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5, stride=1, padding=2)]
+            if self.params['BN_flag']=='B_AF':
+                self.l1.append(nn.BatchNorm2d(16))
+            self.l1.append(nn.ReLU())
+            self.l1.append(nn.MaxPool2d(kernel_size=2, stride=2))
+            if self.params['BN_flag']=='A_AF':
+                self.l1.append(nn.BatchNorm2d(16))
+            
+            self.layer1 = nn.Sequential(*self.l1)
+            
+            
+            self.l2= [nn.Conv2d(16, 16, kernel_size=5, stride=1, padding=2)]
+            if self.params['BN_flag']=='B_AF':
+                self.l2.append(nn.BatchNorm2d(16))
+            self.l2.append(nn.ReLU())
+            self.l2.append(nn.MaxPool2d(kernel_size=4, stride=2))
+            if self.params['BN_flag']=='A_AF':
+                self.l2.append(nn.BatchNorm2d(16))            
+            
+            
+            self.layer2 = nn.Sequential(*self.l2)
+            
+            
+            
+        #TODO: adapt to the structure above to add the batch norm
         elif self.params['IGB_flag']=='OFF':
-            self.layer1 = nn.Sequential(
-                nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5, stride=1, padding=2),
-                #nn.ReLU(),
-                nn.Tanh(),
-                #nn.BatchNorm2d(16), #PUT BATCH NORM TO CONFIRM THAT THIS IS THE PROBLEM FOR VGG16
-                
-                #nn.GroupNorm(int(16/self.params['group_factor']), 16),                
-                
-                #nn.MaxPool2d(kernel_size=2, stride=2)
-                nn.AvgPool2d(kernel_size=2, stride=2)
-                )
-            self.layer2 = nn.Sequential(
-                nn.Conv2d(16, 16, kernel_size=5, stride=1, padding=2),
-                #nn.ReLU(),
-                nn.Tanh(),
-                
-                #nn.BatchNorm2d(32), #PUT BATCH NORM TO CONFIRM THAT THIS IS THE PROBLEM FOR VGG16
-                
-                #nn.GroupNorm(int(32/self.params['group_factor']), 32),
-                
-                #nn.MaxPool2d(kernel_size=4, stride=4)
-                #use avgpool and tanh to prevent the guess imbalance
-                nn.AvgPool2d(kernel_size=4, stride=2)
-                )
+            
+            
+            
+            self.l1= [nn.Conv2d(in_channels=32, out_channels=16, kernel_size=5, stride=1, padding=2)]
+            if self.params['BN_flag']=='B_AF':
+                self.l1.append(nn.BatchNorm2d(16))
+            self.l1.append(nn.Tanh())
+            self.l1.append(nn.AvgPool2d(kernel_size=2, stride=2))
+            if self.params['BN_flag']=='A_AF':
+                self.l1.append(nn.BatchNorm2d(16))
+            
+            self.layer1 = nn.Sequential(*self.l1)
+            
+            
+            self.l2= [nn.Conv2d(16, 16, kernel_size=5, stride=1, padding=2)]
+            if self.params['BN_flag']=='B_AF':
+                self.l2.append(nn.BatchNorm2d(16))
+            self.l2.append(nn.Tanh())
+            self.l2.append(nn.AvgPool2d(kernel_size=4, stride=2))
+            if self.params['BN_flag']=='A_AF':
+                self.l2.append(nn.BatchNorm2d(16))            
+            
+            
+            self.layer2 = nn.Sequential(*self.l2)
+            
+            
             #note the difference in values from the MNIST case in the following line; it is due to the different image size
             #in fact, a generic image (regardless of the number of channels) with size X*Y changes its extension in the 2 directions in the following way:
             #In the convolutional layer: X -> 1+(X-kernel_size + 2*padding)/stride
@@ -1335,23 +1355,31 @@ class Deep_CNN(nn.Module, NetVariables):
         
         for x in channels_seq:
             if self.params['IGB_flag']=='OFF':
-                layers += [nn.Conv2d(in_channels, x, kernel_size=5, stride=1, padding=4),
-                           #nn.ReLU(inplace=True)
-                           #nn.LeakyReLU(negative_slope=0.1, inplace=False),
-                           nn.Tanh()  #put it back after banch runs
-                           #,nn.BatchNorm2d(x)   #For now Batch Norm is excluded because it is incompatible with PCNGD, GD, PCNSGD where I forward sample by sample
-                           ,nn.AvgPool2d(kernel_size=5, stride=1)
-                           ]
+                
+                self.l= [nn.Conv2d(in_channels, x, kernel_size=5, stride=1, padding=4)]
+                if self.params['BN_flag']=='B_AF':
+                    self.l.append(nn.BatchNorm2d(x))
+                self.l.append(nn.Tanh())
+                self.l.append(nn.AvgPool2d(kernel_size=5, stride=1))
+                if self.params['BN_flag']=='A_AF':
+                    self.l.append(nn.BatchNorm2d(x))      
+                
+                
+                layers += self.l
                 in_channels = x            
 
             elif self.params['IGB_flag']=='ON':
-                layers += [nn.Conv2d(in_channels, x, kernel_size=5, stride=1, padding=4),
-                           #nn.ReLU(inplace=True)
-                           #nn.LeakyReLU(negative_slope=0.1, inplace=False),
-                           nn.ReLU()  #put it back after banch runs
-                           #,nn.BatchNorm2d(x)   #For now Batch Norm is excluded because it is incompatible with PCNGD, GD, PCNSGD where I forward sample by sample
-                           ,nn.MaxPool2d(kernel_size=5, stride=1)
-                           ]
+                
+                self.l= [nn.Conv2d(in_channels, x, kernel_size=5, stride=1, padding=4)]
+                if self.params['BN_flag']=='B_AF':
+                    self.l.append(nn.BatchNorm2d(x))
+                self.l.append(nn.ReLU())
+                self.l.append(nn.MaxPool2d(kernel_size=5, stride=1))
+                if self.params['BN_flag']=='A_AF':
+                    self.l.append(nn.BatchNorm2d(x))            
+                
+
+                layers += self.l
                 in_channels = x      
         #see * operator (Unpacking Argument Lists)
         #The special syntax *args in function definitions in python is used to pass a variable number of arguments to a function. It is used to pass a non-key worded, variable-length argument list.
@@ -1481,11 +1509,6 @@ class Net(nn.Module, NetVariables):
         return outs
 
 
-
-
-
-
-
 class ConvNet(nn.Module, NetVariables, OrthoInit):
 
     def __init__(self, params):
@@ -1511,6 +1534,95 @@ class ConvNet(nn.Module, NetVariables, OrthoInit):
         super().__init__()
         super().__init__(self.params)
         """
+        nn.Module.__init__(self)
+        NetVariables.__init__(self, self.params)
+        OrthoInit.__init__(self)
+        
+        if  (self.params['Dataset']=='MNIST'):
+            self.layer1 = nn.Sequential(
+                nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=2),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2))
+            self.layer2 = nn.Sequential(
+                nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2))
+            self.fc = nn.Linear(7*7*32, self.num_classes)
+        elif  (self.params['Dataset']=='CIFAR10' or self.params['Dataset']=='INATURALIST' or self.params['Dataset']=='CIFAR100'):  
+            
+            self.l1=[nn.Conv2d(in_channels=3, out_channels=16, kernel_size=5, stride=1, padding=2)]
+            if self.params['IGB_flag'] == 'ON':
+                self.l1.append(nn.ReLU())
+                self.l1.append(nn.MaxPool2d(kernel_size=2, stride=2))
+            elif self.params['IGB_flag'] == 'OFF':    
+                self.l1.append(nn.Tanh())
+                self.l1.append(nn.AvgPool2d(kernel_size=2, stride=2))     
+                
+            self.layer1 = nn.Sequential(*self.l1)
+            
+            self.l2=[nn.Conv2d(in_channels=16, out_channels=64, kernel_size=5, stride=1, padding=2)]
+            if self.params['IGB_flag'] == 'ON':
+                self.l2.append(nn.ReLU())
+                self.l2.append(nn.MaxPool2d(kernel_size=4, stride=4))
+            elif self.params['IGB_flag'] == 'OFF':    
+                self.l2.append(nn.Tanh())
+                self.l2.append(nn.AvgPool2d(kernel_size=4, stride=4))     
+                
+            self.layer2 = nn.Sequential(*self.l2)
+            
+
+
+            #note the difference in values from the MNIST case in the following line; it is due to the different image size
+            #in fact, a generic image (regardless of the number of channels) with size X*Y changes its extension in the 2 directions in the following way:
+            #In the convolutional layer: X -> 1+(X-kernel_size + 2*padding)/stride
+            # In the pooling layer: X -> 1+(X-kernel_size)/stride
+            self.fc = nn.Linear(4*4*64, self.num_classes)                
+            
+        self.initialize_weights() #calling the function below to initialize weights
+        #self.weights_init() #call the orthogonal initial condition    
+    def initialize_weights(self):
+        #modules is the structure in which pytorch saves all the layers that make up the network
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+                
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight)
+                nn.init.constant_(m.bias, 0)
+            
+            
+
+        
+    def forward(self, x):
+        outs = {}
+        
+        L1 = self.layer1(x)
+        outs['l1'] = L1
+        L2 = self.layer2(L1)
+        #After pooling or CNN convolution requires connection full connection layer, it is necessary to flatten the multi-dimensional tensor into a one-dimensional,
+        #Tensor dimension convolution or after pooling of (batchsize, channels, x, y), where x.size (0) means batchsize value, and finally through x.view (x.size (0), -1) will be in order to convert the structure tensor (batchsize, channels * x * y), is about (channels, x, y) straightened, can then be connected and fc layer
+        outs['l2'] = L2
+        Out = L2.reshape(L2.size(0), -1)
+        Out = self.fc(Out)
+        outs['out'] = Out
+        outs['pred'] = torch.argmax(Out, dim=1)
+        return outs
+
+
+
+
+"""
+class ConvNet(nn.Module, NetVariables, OrthoInit):
+
+    def __init__(self, params):
+
+
+        self.params = params.copy()
+        #this is an example of multiple inherance class
+        #we need a single "super" call for each parent class
+
         nn.Module.__init__(self)
         NetVariables.__init__(self, self.params)
         OrthoInit.__init__(self)
@@ -1587,7 +1699,7 @@ class ConvNet(nn.Module, NetVariables, OrthoInit):
         outs['out'] = Out
         return outs
 
-
+"""
 
 
 #WARNING: VGG is designed only for CIFAR10 data    
@@ -1952,6 +2064,7 @@ class Bricks:
             
         elif(self.params['NetMode']=='CNN'):
             self.model = ConvNet(self.params)
+            self.params['OutShape']='MultipleNodes' 
             
         elif(self.params['NetMode']=='VGG16'):
             self.model = VGG(self.params)
@@ -2029,7 +2142,7 @@ class Bricks:
                         transforms.ToTensor() #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
                         ,transforms.Normalize(mean=(DataMean,), std=(DataStd,))
                         ])   
-        elif(self.params['Dataset']=='CIFAR10'):    
+        elif(self.params['Dataset']=='CIFAR10') or (self.params['Dataset']=='CIFAR100'):    
             self.transform = transforms.Compose([
                     transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
                     #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
@@ -2075,6 +2188,14 @@ class Bricks:
                     print('image', item[0])
                     i+=1
             #print("total number of samples ", self.train_data.data)
+            
+        elif(self.params['Dataset']=='CIFAR100'):
+            print('this run used CIFAR100 dataset', file = self.params['info_file_object'])
+            self.train_data = datasets.CIFAR100(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
+            self.test_data = datasets.CIFAR100(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
+            self.valid_data = datasets.CIFAR100(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
+            num_data = len(self.train_data)
+            
         elif(self.params['Dataset']=='GaussBlob'):
             #TODO: WARNING you are using same dataset for train test valid (because for now you only need the train) for the GaussBlob dataset. You will need to modify this later
             self.train_data = GaussBlobsDataset(self.params['DataFolder'])
@@ -3068,21 +3189,21 @@ class Bricks:
                 self.model.FN[i][TimesComponentCounter] += ((label==i).int()*(self.TrainPred!=i).int()).sum().item()  
         elif SetFlag=='Valid':
 
-            _, ValPred = torch.max(self.output, 1)
+            _, self.ValPred = torch.max(self.output, 1)
             label = torch.reshape(label, (-1,))
             #we use, as usual, the knowledge that all batch's elements belong to the same class
             i = label[0] 
-            self.ClassValCorrect[i] += ((label==i).int()*(ValPred==i).int()).sum().item()
-            self.ValCorrect+= ((label==i).int()*(ValPred==i).int()).sum().item()
+            self.ClassValCorrect[i] += ((label==i).int()*(self.ValPred==i).int()).sum().item()
+            self.ValCorrect+= ((label==i).int()*(self.ValPred==i).int()).sum().item()
         
         elif SetFlag=='Test':
             #calculating correct samples for accuracy
-            _, TestPred = torch.max(self.output, 1)    
+            _, self.TestPred = torch.max(self.output, 1)    
  
             label = torch.reshape(label, (-1,))
             i = label[0]
-            self.ClassTestCorrect[i] += ((label==i).int()*(TestPred==i).int()).sum().item()
-            self.TestCorrect+= ((label==i).int()*(TestPred==i).int()).sum().item()       
+            self.ClassTestCorrect[i] += ((label==i).int()*(self.TestPred==i).int()).sum().item()
+            self.TestCorrect+= ((label==i).int()*(self.TestPred==i).int()).sum().item()       
          
 
         
