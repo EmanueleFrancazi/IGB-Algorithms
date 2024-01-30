@@ -5,8 +5,12 @@ The final version on github will then not show the same problem.**
 The repo contains codes to reproduce the results of the article [title and link of the paper available after publication]. \
 The necessary modules to be installed with their versions can be found in the `requirements.txt` file.
 
+There are two folders:
+- **Initialization** contains the codes for reproducing the initialization experiments and collecting the corresponding statistics (for example, to reproduce the characteristic histograms that indicate (or not) the presence of IGB).
+- **Dynamics**, on the other hand, contains the codes for tracking the dynamics and statistics related to performance trends, to be compared with those related to IGB.
 
-## Structure
+
+## Structure (**Initialization**)
 
 In order to ensure clearer readability the code is divided into 2 scripts: 
 * `MainBlock.py` : code on which the simulation runs; it defines the framework of the program and the flow of executed commands.
