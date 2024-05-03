@@ -52,6 +52,11 @@ import time
 import copy
 
 
+#for pre-trained architectures
+import torchvision.models as models
+import torchvision.transforms as transforms
+
+
 #fixing initial times to calculate the total time of the cycle
 start_TotTime = time.time()
 
@@ -1956,7 +1961,38 @@ class ResNet9(ImageClassificationBase):
         out = self.output(out)
         return out
 
+#%%% PRE-TRAINED ResNet50
 
+
+
+class CustomResNet50(ImageClassificationBase):
+    def __init__(self, num_classes=2, pretrained=True):
+        super(CustomResNet50, self).__init__()
+        # Load a pre-trained ResNet50 model
+        if pretrained:
+            self.pretrained_model = models.resnet50(pretrained=True)
+        else:
+            self.pretrained_model = models.resnet50(pretrained=False)
+        
+        # Modify the classifier head
+        self.pretrained_model.fc = nn.Linear(self.pretrained_model.fc.in_features, num_classes)
+        
+        # Initialize the weights of the classifier head
+        self._initialize_classifier_weights(self.pretrained_model.fc)
+
+    def _initialize_classifier_weights(self, layer):
+        """
+        Initializes the weights of the classifier layer with Kaiming normal distribution
+        and biases to zero.
+        """
+        nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.constant_(layer.bias, 0)
+
+    def forward(self, x):
+        """
+        Forward pass of the model.
+        """
+        return self.pretrained_model(x)
 
 
 
@@ -2419,7 +2455,8 @@ elif Architecture=='MLP_mixer2':
         off_act=False,
         is_cls_token=True
         ), device)
-
+elif Architecture=='PT_ResNet50':
+    model = to_device(CustomResNet50(num_classes), device)
 
     
 if (ds=='Gaussian' or ds == 'ImbalancedGaussian'):

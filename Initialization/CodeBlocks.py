@@ -19,6 +19,9 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
+from torchvision.datasets import ImageFolder
+
+
 import wandb
 
 from collections import Counter
@@ -64,6 +67,12 @@ import math
 
 import random
 
+
+#for pre-trained architectures
+import torchvision.models as models
+import torchvision.transforms as transforms
+
+
 torch.set_printoptions(precision=17)
 
 #%% CHECKING CLASS
@@ -103,6 +112,10 @@ class DatasetMeanStd:
         elif(self.DatasetName=='MNIST'):
             self.train_data = datasets.MNIST(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
             self.test_data = datasets.MNIST(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
+        else:
+            self.train_data = ImageFolder(self.params['DataFolder']+'/train')
+            self.test_data = ImageFolder(self.params['DataFolder']+'/test')
+            
             
     #TODO: include also the option to calculate mean and std for test sets and MNIST dataset
         i=0
@@ -1968,12 +1981,117 @@ class VGG_Custom_Dropout(nn.Module, NetVariables, OrthoInit):
 
 
 
+class CustomResNet50(nn.Module, NetVariables, OrthoInit):
+    def __init__(self, params, pretrained=True):
+        
+        self.params = params.copy()
+
+        
+        nn.Module.__init__(self)
+        NetVariables.__init__(self, self.params)
+        OrthoInit.__init__(self)
+
+        
+        #super(CustomResNet50, self).__init__()
+        
+        # Load a pre-trained ResNet50 model
+        if pretrained:
+            #self.pretrained_model = models.resnet50(pretrained=True)  #deprecated
+            self.pretrained_model = models.resnet50(weights='ResNet50_Weights.DEFAULT')
+        else:
+            self.pretrained_model = models.resnet50(pretrained=False)
+        
+        # Modify the classifier head
+        self.pretrained_model.fc = nn.Linear(self.pretrained_model.fc.in_features, self.num_classes)
+        
+        # Initialize the weights of the classifier head
+        self._initialize_classifier_weights(self.pretrained_model.fc)
+
+    def _initialize_classifier_weights(self, layer):
+        """
+        Initializes the weights of the classifier layer with Kaiming normal distribution
+        and biases to zero.
+        """
+        nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.constant_(layer.bias, 0)
+
+    def forward(self, x):
+        """
+        Forward pass of the model.
+        """
+        
+
+        outs = {}
+        
+        outs['l2'] = torch.tensor([[0]]) #dummy item (for now we don't need the hidden representation of the signal)
+        
+        Out = self.pretrained_model(x)
+        
+        outs['out'] = Out
+
+        outs['pred'] = torch.argmax(Out, dim=1)
+        
+        #print(torch.sign(Fc2).int(), flush= True)
+        #print(outs['pred'], flush= True)
+        
+        return outs
+        
 
 
 
+class CustomViT(nn.Module, NetVariables, OrthoInit):
+    def __init__(self, params, model_name='vit_b_16', pretrained=True):
 
+        self.params = params.copy()
 
+        
+        nn.Module.__init__(self)
+        NetVariables.__init__(self, self.params)
+        OrthoInit.__init__(self)        
+        
+        
+        # Load a pre-trained ViT model
+        if pretrained:
+            # Use the torchvision.models.vit_* functions to load a pre-trained model
+            self.pretrained_model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT)
+        else:
+            # Initialize without pre-trained weights
+            self.pretrained_model = models.vit_b_16(weights=None)
+        
+        self.pretrained_model.heads.head = nn.Linear(self.pretrained_model.heads.head.in_features, self.num_classes)
+        
+        # Initialize the weights of the classifier head
+        self._initialize_mlp_weights(self.pretrained_model.heads)
 
+    def _initialize_mlp_weights(self, mlp_block):
+        if isinstance(mlp_block, nn.Sequential):
+            for layer in mlp_block:
+                if isinstance(layer, nn.Linear):
+                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                    nn.init.constant_(layer.bias, 0)
+        elif isinstance(mlp_block, nn.Linear):
+            nn.init.kaiming_normal_(mlp_block.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(mlp_block.bias, 0)
+
+    def forward(self, x):
+        """
+        Forward pass of the model.
+        """
+        outs = {}
+        
+        # For ViT, we don't easily have access to intermediate representations before the head,
+        # as it's a direct transformation from the last transformer block to the head.
+        # Therefore, we keep this simple and direct for now.
+        
+        outs['l2'] = torch.tensor([[0]]) #dummy item (for now we don't need the hidden representation of the signal)
+
+        
+        Out = self.pretrained_model(x)
+        
+        outs['out'] = Out
+        outs['pred'] = torch.argmax(Out, dim=1)
+        
+        return outs
 
 
 #define here a simil-hinge loss function to quantify how distant are on average the points from the boundary of the classification
@@ -2094,6 +2212,13 @@ class Bricks:
         elif(self.params['NetMode']=='Deep_CNN'):
             self.model = Deep_CNN(self.params)
             self.params['OutShape']='MultipleNodes' 
+            
+        elif(self.params['NetMode']=='PT_ResNet50'):
+            self.model = CustomResNet50(self.params)
+            self.params['OutShape']='MultipleNodes' 
+        elif(self.params['NetMode']=='PT_ViT'):
+            self.model = CustomViT(self.params)
+            self.params['OutShape']='MultipleNodes' 
         else:
             print('Architecture argument is wrong', file = self.params['WarningFile'])
         self.RoundSolveConst = 1e3 #NOTE: this is a scaling factor to prevent underflow problem in norm computation/dot product if you have a large vector with small components; If this is not the case remove it to avoid the opposite problem (overflow)
@@ -2143,12 +2268,21 @@ class Bricks:
                         ,transforms.Normalize(mean=(DataMean,), std=(DataStd,))
                         ])   
         elif(self.params['Dataset']=='CIFAR10') or (self.params['Dataset']=='CIFAR100'):    
-            self.transform = transforms.Compose([
-                    transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
-                    #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
-                    transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
-                    #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
-        
+            if self.params['Resize_Flag']=='ON':
+                self.transform = transforms.Compose([
+                        transforms.Resize(224),
+                        transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
+                        #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
+                        transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
+                        #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
+                           
+            else:
+                self.transform = transforms.Compose([
+                        transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
+                        #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
+                        transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
+                        #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
+            
         #to check the above values used for the dataset standardization you can use the function Mean and Std from DatasetMeanStd class (CodeBlocks module); below an example for the mean
         """
         a = []
@@ -2205,7 +2339,7 @@ class Bricks:
             
             print("total number of samples ", num_data, self.train_data.data.size())
         else:
-            print('the third argument ypo passed to the python code is not valid', file = self.params['WarningFile'])
+            print('the third argument you passed to the python code is not valid', file = self.params['WarningFile'])
         
         
         
@@ -2287,9 +2421,9 @@ class Bricks:
                     self.trainTarget_idx = (self.traintargets==key).nonzero() 
                     #l0=int(900/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #just for debug purpose
                     l0 = int(len(self.trainTarget_idx)/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #we first compute the numbers of batches for the majority class and then reproduce for all the others in such a way they will have same number of batches but with a proportion set by self.TrainClassBS[classcounter-1]            
-                    #self.Trainl0 = l0
+                    self.Trainl0 = l0
                     #WARNING: LINE ABOVE CHANGED WITH THE ONE BELOW ONLY FOR DEBUG PURPOSE (MNIST ADAPTATION) RESUBSTITUTE WITH THE ONE ABOVE ONCE SOLVED THE ISSUE
-                    self.Trainl0 = 5400
+                    #self.Trainl0 = 5400
                     print("the number of elements selected by the class {} loaded on the trainset is {}".format(key, self.Trainl0),flush=True, file = self.params['info_file_object'])
                     #print(self.trainTarget_idx)
                     ClassTempVar = '%s'%self.params['label_map'][key]
