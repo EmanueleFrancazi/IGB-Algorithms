@@ -9,12 +9,13 @@ Created on Fri Sep 24 14:57:31 2021
 #for nn
 import torch
 import numpy as np
+import torchvision
 from torchvision import datasets
 import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 import torch.backends.cudnn as cudnn
 #import tensorboard
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
@@ -103,8 +104,8 @@ class DatasetMeanStd:
         self.ClassesList = self.params['label_map'].keys() #get the list of images in the dataset in case of subset of classes
         self.transform = transforms.ToTensor()
         if(self.DatasetName=='CIFAR10'):
-            self.train_data = datasets.CIFAR10(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
-            self.test_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = True, transform = self.transform)
+            self.train_data = datasets.CIFAR10(root = self.params['DataFolder'], train = True, download = False, transform = self.transform)
+            self.test_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = False, transform = self.transform)
         elif(self.DatasetName=='CIFAR100'):
             self.train_data = datasets.CIFAR100(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
             self.test_data = datasets.CIFAR100(root = self.params['DataFolder'], train = False, download = True, transform = self.transform)
@@ -1981,7 +1982,7 @@ class VGG_Custom_Dropout(nn.Module, NetVariables, OrthoInit):
 
 
 
-class CustomResNet50(nn.Module, NetVariables, OrthoInit):
+class PreTrainedResNet50(nn.Module, NetVariables, OrthoInit):
     def __init__(self, params, pretrained=True):
         
         self.params = params.copy()
@@ -1992,12 +1993,21 @@ class CustomResNet50(nn.Module, NetVariables, OrthoInit):
         OrthoInit.__init__(self)
 
         
-        #super(CustomResNet50, self).__init__()
+        #super(PreTrainedResNet50, self).__init__()
         
         # Load a pre-trained ResNet50 model
         if pretrained:
-            #self.pretrained_model = models.resnet50(pretrained=True)  #deprecated
-            self.pretrained_model = models.resnet50(weights='ResNet50_Weights.DEFAULT')
+            #self.weights = torchvision.models.ResNet50_Weights.DEFAULT
+            
+            #self.imagenet_transforms = self.weights.transforms()
+            
+            #if you need to use pretrained models in offline setting you have to first sore it in a dict and then directly import it
+            self.pretrained_model = models.resnet50(pretrained=False)
+            self.pretrained_model.load_state_dict(torch.load('./resnet50_weights.pth', map_location=torch.device(self.params['device'])))
+            
+
+            #self.pretrained_model = models.resnet50(pretrained=True)  #deprecated but if the torchvision version is old you have to use this line, otherwise the one below
+            #self.pretrained_model = models.resnet50(weights='ResNet50_Weights.DEFAULT')
         else:
             self.pretrained_model = models.resnet50(pretrained=False)
         
@@ -2039,7 +2049,7 @@ class CustomResNet50(nn.Module, NetVariables, OrthoInit):
 
 
 
-class CustomViT(nn.Module, NetVariables, OrthoInit):
+class PreTrainedViT(nn.Module, NetVariables, OrthoInit):
     def __init__(self, params, model_name='vit_b_16', pretrained=True):
 
         self.params = params.copy()
@@ -2052,8 +2062,12 @@ class CustomViT(nn.Module, NetVariables, OrthoInit):
         
         # Load a pre-trained ViT model
         if pretrained:
+            
+            self.pretrained_model = models.vit_b_16(pretrained=False)
+            self.pretrained_model.load_state_dict(torch.load('./vit_b_16_weights.pth', map_location=torch.device(self.params['device'])))
+            
             # Use the torchvision.models.vit_* functions to load a pre-trained model
-            self.pretrained_model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT)
+            #self.pretrained_model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT)
         else:
             # Initialize without pre-trained weights
             self.pretrained_model = models.vit_b_16(weights=None)
@@ -2092,6 +2106,178 @@ class CustomViT(nn.Module, NetVariables, OrthoInit):
         outs['pred'] = torch.argmax(Out, dim=1)
         
         return outs
+
+
+
+class MLP(nn.Module):
+    """
+    Multi-Layer Perceptron (MLP) neural network model.
+
+    Args:
+        input_dim (int): The number of input features.
+        hidden_dim (int): The number of hidden units in each layer.
+        output_dim (int): The number of output units.
+        num_layers (int, optional): The number of layers in the MLP. Defaults to 5.
+
+    Attributes:
+        mlp (nn.Sequential): The sequential container for the MLP layers.
+
+    """
+
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=5):
+        super(MLP, self).__init__()
+        layers = []
+        for i in range(num_layers):
+            if i == 0:
+                layers.append(nn.Linear(input_dim, hidden_dim))
+            else:
+                layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.ReLU(inplace=True))
+        layers.append(nn.Linear(hidden_dim, output_dim))
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x):
+        """
+        Forward pass of the MLP.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor.
+
+        """
+        return self.mlp(x)
+
+
+
+class PreTrainedSwinT(nn.Module, NetVariables, OrthoInit):
+    def __init__(self, params, pretrained=True):
+        self.params = params.copy()
+        
+        nn.Module.__init__(self)
+        NetVariables.__init__(self, self.params)
+        OrthoInit.__init__(self)        
+        
+        # Load a pre-trained Swin Transformer model
+        if pretrained:
+            
+
+            self.pretrained_model = torchvision.models.swin_t(weights=None)
+            self.pretrained_model.load_state_dict(torch.load('./swin_t_weights.pth', map_location=torch.device(self.params['device'])))
+            """
+            #if you have access to internet you can use the 2 lines below in place of the ones above
+            weights = torchvision.models.Swin_T_Weights.DEFAULT
+            self.pretrained_model = torchvision.models.swin_t(weights=weights)
+            """
+        else:
+            self.pretrained_model = torchvision.models.swin_t(weights=None)
+        
+
+        # Adapt the Head of the model to match the number of target classes
+        num_features = 768  # You can verify this by inspecting the model structure
+        hidden_dim = 768  # Keeping the width constant
+        num_classes = self.num_classes  # Number of target classes
+        # Modify the classifier head to use a generic MLP
+        self.pretrained_model.head = MLP(num_features, hidden_dim, num_classes, num_layers=5)
+        
+        # Initialize the weights of the classifier head
+        self._initialize_mlp_weights(self.pretrained_model.head)
+
+    def _initialize_mlp_weights(self, mlp):
+        for layer in mlp.mlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(layer.bias, 0)
+
+    """
+        # Modify the classifier head
+        num_features = 768 # you can inspect the num_features defyining a dummy model, i.e. model = swin_t(weights=Swin_T_Weights.DEFAULT), with  print(model) (input dimension of the last layer, the classifier)
+        self.pretrained_model.head = nn.Linear(num_features, self.num_classes) 
+        
+        # Initialize the weights of the classifier head
+        self._initialize_mlp_weights(self.pretrained_model.head)
+
+    def _initialize_mlp_weights(self, layer):
+        nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.constant_(layer.bias, 0)
+    """
+    
+    def forward(self, x):
+        """
+        Forward pass of the model.
+        """
+        outs = {}
+        out = self.pretrained_model(x)
+        
+        outs['out'] = out
+        outs['pred'] = torch.argmax(out, dim=1)
+        outs['l2'] = torch.tensor([[0]])  # Dummy item
+        
+        return outs
+
+
+class PreTrainedEfficientNetV2(nn.Module, NetVariables, OrthoInit):
+    def __init__(self, params, pretrained=True):
+        self.params = params.copy()
+        
+        nn.Module.__init__(self)
+        NetVariables.__init__(self, self.params)
+        OrthoInit.__init__(self)        
+        
+    
+        # Load a pre-trained EfficientNet V2-S model
+        if pretrained:
+            self.pretrained_model = torchvision.models.efficientnet_v2_s(pretrained=True)
+            #self.pretrained_model = torchvision.models.efficientnet_v2_s(weights='DEFAULT')
+        else:
+            self.pretrained_model = torchvision.models.efficientnet_v2_s(pretrained=False)
+
+        # Modify the classifier head to use an MLP
+        num_features = self.pretrained_model.classifier[1].in_features
+        hidden_dim = num_features  # Keeping the width constant
+        num_classes = self.num_classes  # Assuming num_classes is provided in params
+        self.pretrained_model.classifier[1] = MLP(num_features, hidden_dim, num_classes, num_layers=5)
+        
+        # Initialize the weights of the classifier head
+        self._initialize_mlp_weights(self.pretrained_model.classifier[1])
+
+    def _initialize_mlp_weights(self, mlp):
+        for layer in mlp.mlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(layer.bias, 0)
+
+
+    """
+        # Replace the classifier head with one matching the number of target classes
+        num_features = self.pretrained_model.classifier[1].in_features
+        self.pretrained_model.classifier[1] = nn.Linear(num_features, self.num_classes)
+        
+        # Initialize the weights of the new classifier head
+        self._initialize_mlp_weights(self.pretrained_model.classifier[1])
+
+    def _initialize_mlp_weights(self, layer):
+        if isinstance(layer, nn.Linear):
+            nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(layer.bias, 0)
+    """
+    def forward(self, x):
+        """
+        Forward pass of the model.
+        """
+        outs = {}
+        out = self.pretrained_model(x)
+        
+        outs['out'] = out
+        outs['pred'] = torch.argmax(out, dim=1)
+        outs['l2'] = torch.tensor([[0]])  # Dummy item
+        
+        return outs
+
+
+
+
 
 
 #define here a simil-hinge loss function to quantify how distant are on average the points from the boundary of the classification
@@ -2214,11 +2400,17 @@ class Bricks:
             self.params['OutShape']='MultipleNodes' 
             
         elif(self.params['NetMode']=='PT_ResNet50'):
-            self.model = CustomResNet50(self.params)
+            self.model = PreTrainedResNet50(self.params)
             self.params['OutShape']='MultipleNodes' 
         elif(self.params['NetMode']=='PT_ViT'):
-            self.model = CustomViT(self.params)
+            self.model = PreTrainedViT(self.params)
             self.params['OutShape']='MultipleNodes' 
+        elif(self.params['NetMode']=='PT_SwinT'):
+            self.model = PreTrainedSwinT(self.params)
+            self.params['OutShape']='MultipleNodes'  
+        elif(self.params['NetMode']=='PT_EN2'):
+            self.model = PreTrainedEfficientNetV2(self.params)
+            self.params['OutShape']='MultipleNodes'  
         else:
             print('Architecture argument is wrong', file = self.params['WarningFile'])
         self.RoundSolveConst = 1e3 #NOTE: this is a scaling factor to prevent underflow problem in norm computation/dot product if you have a large vector with small components; If this is not the case remove it to avoid the opposite problem (overflow)
@@ -2268,21 +2460,39 @@ class Bricks:
                         ,transforms.Normalize(mean=(DataMean,), std=(DataStd,))
                         ])   
         elif(self.params['Dataset']=='CIFAR10') or (self.params['Dataset']=='CIFAR100'):    
-            if self.params['Resize_Flag']=='ON':
+            if self.params['Pre_Trained_Flag']=='ON':
+                """
                 self.transform = transforms.Compose([
                         transforms.Resize(224),
-                        transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
-                        #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
-                        transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
+                        self.imagenet_transforms]) #in this way we standardize only on the subset of dataset used
                         #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
-                           
-            else:
+                """
+                # Define transformations: resize, crop, convert to tensor, and normalize
+                # These normalization values are standard for models trained on ImageNet
                 self.transform = transforms.Compose([
-                        transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
-                        #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
-                        transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
-                        #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
+                        transforms.Resize(256),
+                        transforms.CenterCrop(224),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                    ])
+                
             
+            else:
+                if self.params['Resize_Flag']=='ON':
+                    self.transform = transforms.Compose([
+                            transforms.Resize(224),
+                            transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
+                            #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
+                            transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
+                            #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
+                               
+                else:
+                    self.transform = transforms.Compose([
+                            transforms.ToTensor(), #NOTE: Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
+                            #NOTE: the standardization depend on the dataset that you use; if you use a subset of classes you have to calculate mean and std on the restricted dataset
+                            transforms.Normalize(DataMean, DataStd)]) #in this way we standardize only on the subset of dataset used
+                            #transforms.Normalize((0.49236655, 0.47394478, 0.41979155), (0.24703233, 0.24348505, 0.26158768))]) 
+                
         #to check the above values used for the dataset standardization you can use the function Mean and Std from DatasetMeanStd class (CodeBlocks module); below an example for the mean
         """
         a = []
@@ -2309,9 +2519,9 @@ class Bricks:
             print("total number of samples ", num_data, self.train_data.data.size())
         elif(self.params['Dataset']=='CIFAR10'):
             print('this run used CIFAR10 dataset', file = self.params['info_file_object'])
-            self.train_data = datasets.CIFAR10(root = self.params['DataFolder'], train = True, download = True, transform = self.transform)
-            self.test_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
-            self.valid_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = True, transform = self.transform) 
+            self.train_data = datasets.CIFAR10(root = self.params['DataFolder'], train = True, download = False, transform = self.transform)
+            self.test_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = False, transform = self.transform) 
+            self.valid_data = datasets.CIFAR10(root = self.params['DataFolder'], train = False, download = False, transform = self.transform) 
             num_data = len(self.train_data)
             i=0
             for item in self.train_data:
@@ -2421,9 +2631,9 @@ class Bricks:
                     self.trainTarget_idx = (self.traintargets==key).nonzero() 
                     #l0=int(900/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #just for debug purpose
                     l0 = int(len(self.trainTarget_idx)/MajorInputClassBS)*self.TrainClassBS[self.params['label_map'][key]] #we first compute the numbers of batches for the majority class and then reproduce for all the others in such a way they will have same number of batches but with a proportion set by self.TrainClassBS[classcounter-1]            
-                    self.Trainl0 = l0
+                    #self.Trainl0 = l0
                     #WARNING: LINE ABOVE CHANGED WITH THE ONE BELOW ONLY FOR DEBUG PURPOSE (MNIST ADAPTATION) RESUBSTITUTE WITH THE ONE ABOVE ONCE SOLVED THE ISSUE
-                    #self.Trainl0 = 5400
+                    self.Trainl0 = 500
                     print("the number of elements selected by the class {} loaded on the trainset is {}".format(key, self.Trainl0),flush=True, file = self.params['info_file_object'])
                     #print(self.trainTarget_idx)
                     ClassTempVar = '%s'%self.params['label_map'][key]

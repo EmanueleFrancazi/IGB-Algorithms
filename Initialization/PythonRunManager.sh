@@ -22,6 +22,8 @@ Dataset='CIFAR10'
 #DataFolder="$TMPDIR/data_nobackup/CIFAR100"
 #DataFolder="/home/EAWAG/francaem/restored/data/Binary_GaussBlob/"
 DataFolder="/home/EAWAG/francaem/restored/data/CIFAR10/"
+#DataFolder="/cluster/home/efrancazi/Data/Cat_vs_Dog/cifar10"
+##DataFolder="/cluster/home/efrancazi/Data/Torch_Downloaded/Cifar10"
 #DataFolder="/home/EAWAG/francaem/restored/data/CIFAR100/"
 #DataFolder='/home/EAWAG/francaem/restored/Prova/IGB/ICLR_rebuttal/Kaggle/data/Cat_vs_Dog/cifar10'
 
@@ -30,7 +32,10 @@ DataFolder="/home/EAWAG/francaem/restored/data/CIFAR10/"
 #Architecture='CNN'
 #Architecture='MultiPerceptron'
 #Architecture='Deep_CNN'
-Architecture='PT_ViT'
+#Architecture='PT_ViT'
+#Architecture='PT_SwinT'
+Architecture='PT_EN2'
+#Architecture="PT_ResNet50"
 
 mkdir $FolderName 
 
@@ -45,7 +50,7 @@ do
 	do
 		for DP in -1 #0.2 0.4 # 0.2 0.4 #0.4 #0.2 0.4
 		do
-			for BS in 100
+			for BS in 10
 			do
 				for LR in 0.1      #1 0.1 0.01   
 				do

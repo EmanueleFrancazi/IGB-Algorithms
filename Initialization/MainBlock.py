@@ -12,8 +12,8 @@ import numpy as np
 from torchvision import datasets
 import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
-#import tensorboard
-from torch.utils.tensorboard import SummaryWriter
+import tensorboard
+#from torch.utils.tensorboard import SummaryWriter
 #import wandb
 import wandb
 # for data visualization
@@ -175,7 +175,7 @@ if Set_Device=='CPU':
     device = "cpu"
 elif Set_Device=='GPU':
 #GPU
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"    #device = "cuda"
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"    #device = "cuda"
 print("Using {} device".format(device))
 
 # time parameters (run extention, number of points,...)
@@ -215,6 +215,7 @@ SignCountFlag='OFF'#flag to activate or not the count of proportions between sig
 
 Resize_Flag='ON' #flag 'ON' if we need to resize the images in the trasform procedure (e.g. for fine-tuning on different datasets of pre-trained models)
 
+Pre_Trained_Flag='ON' #flag 'ON' if we need to transform input in order to use pre-trained model (e.g. for fine-tuning on different datasets of pre-trained models)
 
 #check variables
 batches_num =0 #this variable counts the number of non-trashed batches (for example when we deal with PCN alg. we have to trash batches if they doesn't contain at least one element from each class)
@@ -400,7 +401,7 @@ params = {'Dynamic': Dynamic,  'FolderPath': FolderPath,  'info_file_object' : i
           'sign_to_label_dict' : sign_to_label_dict, 'label_to_sign_dict' : label_to_sign_dict,
           'MaxPoolArgs':MaxPoolArgs, 'NetConf':NetConf, 'ShiftAF': ShiftAF,
           'SignCountFlag': SignCountFlag, 'IGB_flag': IGB_flag, 'BN_flag': BN_flag,
-          'Resize_Flag':Resize_Flag}
+          'Resize_Flag':Resize_Flag, 'Pre_Trained_Flag': Pre_Trained_Flag}
 
 #if you include the HP looping inside the code at each "hyper-params iteration" makes a new object and assign it to the variable NetInstance
 #The old instance is not referenced anymore, and you cannot access it anymore. So in each loop you have a new fresh instance.
@@ -545,7 +546,7 @@ wandb.save('model.onnx')
 
 
 #OPENING RESEVOIR FOR TENSOR BOARD SUMMARY
-NetInstance.SummaryWriterCreation(TB_path) #we specify the subfolder path where to save all the files that will be used by tensorboard    
+#NetInstance.SummaryWriterCreation(TB_path) #we specify the subfolder path where to save all the files that will be used by tensorboard    
 
 """
 DummyInput,_  = next(iter(NetInstance.train_loader))
