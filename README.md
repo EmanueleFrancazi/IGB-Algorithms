@@ -1,8 +1,8 @@
-# Content (in a nutshell)
-**NOTE**: **Anonymous Github does not format text on markdown following GFM (GitHub Flavored Markdown)**. Therefore, there are minor differences from the formatting in the original repo (mainly the mathematical expressions are not shown properly but through the source code expression, not formatted). **The file can be displayed properly by copying the source code on github.
-The final version on github will then not show the same problem.**
+# Initial Guessing Bias: How Untrained Networks Favor Some Classes
 
-The repo contains codes to reproduce the results of the article [title and link of the paper available after publication]. \
+This repository contains the code necessary to reproduce the results presented in the paper:
+
+**Title:** [Initial Guessing Bias: How Untrained Networks Favor Some Classes](https://arxiv.org/pdf/2306.00809) \
 The necessary modules to be installed with their versions can be found in the `requirements.txt` file.
 
 There are two folders:
